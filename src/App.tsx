@@ -3,6 +3,7 @@ import LoginPage from './LoginPage';
 import PatientsListPage from './PatientsListPage';
 import RegisterPage from './RegisterPage';
 import UserRegisterPage from './UserRegisterPage';
+import RecoverPasswordPage from "./RecoverPasswordPage";
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<string>('login');
