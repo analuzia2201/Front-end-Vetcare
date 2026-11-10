@@ -3,10 +3,10 @@ import Sidebar from './Sidebar';
 import './index.css';
 
 interface PetInput {
-  nome: string;
-  especie: string;
-  raca: string;
-  sexo: string;
+  name: string;
+  species: string;
+  breed: string;
+  sex: string;
 }
 
 interface RegisterPageProps {
@@ -20,13 +20,13 @@ export default function RegisterPage({ onNavigate }: RegisterPageProps) {
   const [email, setEmail] = useState('');
 
   const [pets, setPets] = useState<PetInput[]>([
-    { nome: '', especie: '', raca: '', sexo: 'Fêmea' }
+    { name: '', species: '', breed: '', sex: 'Fêmea' }
   ]);
 
   const [isLoading, setIsLoading] = useState(false);
 
   const handleAddPet = () => {
-    setPets([...pets, { nome: '', especie: '', raca: '', sexo: 'Fêmea' }]);
+    setPets([...pets, { name: '', species: '', breed: '', sex: 'Fêmea' }]);
   };
 
   const handleRemovePet = (index: number) => {
@@ -45,41 +45,55 @@ export default function RegisterPage({ onNavigate }: RegisterPageProps) {
     e.preventDefault();
     setIsLoading(true);
 
-    const payload = {
-      tutor: { nome: tutorName, cpf, telefone: phone, email },
-      pets: pets,
+    const baseUrl = import.meta.env.VITE_API_URL || 'https://vetcare-zcak.onrender.com';
+    const token = localStorage.getItem('token');
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     };
 
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'https://vetcare-zcak.onrender.com';
-      const token = localStorage.getItem('token');
-
-      let response = await fetch(`${baseUrl}/tutores`, {
+      // 1. Criar o Tutor (Guardian) no NestJS
+      const guardianResponse = await fetch(`${baseUrl}/guardians`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify(payload),
+        headers,
+        body: JSON.stringify({
+          name: tutorName,
+          cpf,
+          phone,
+          email,
+        }),
       });
 
-      if (!response.ok) {
-        response = await fetch(`${baseUrl}/users`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {})
-          },
-          body: JSON.stringify({ name: tutorName, email, cpf, phone, pets }),
-        });
+      if (!guardianResponse.ok) {
+        throw new Error('Falha ao cadastrar o tutor.');
+      }
+
+      const guardianData = await guardianResponse.json();
+      const guardianId = guardianData.id;
+
+      // 2. Criar os Pets vinculados ao ID do Tutor
+      for (const pet of pets) {
+        if (pet.name.trim()) {
+          await fetch(`${baseUrl}/pets`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              name: pet.name,
+              species: pet.species,
+              breed: pet.breed,
+              sex: pet.sex,
+              guardianId: guardianId,
+            }),
+          });
+        }
       }
 
       alert('Tutor e Pet(s) cadastrados com sucesso!');
       onNavigate('lista');
-    } catch (error) {
-      console.error('Erro de conexão:', error);
-      alert('Cadastro realizado com sucesso!');
-      onNavigate('lista');
+    } catch (error: any) {
+      console.error('Erro de salvamento:', error);
+      alert(error.message || 'Erro ao realizar o cadastro.');
     } finally {
       setIsLoading(false);
     }
@@ -208,8 +222,8 @@ export default function RegisterPage({ onNavigate }: RegisterPageProps) {
                       <label className="block text-[0.7rem] font-semibold text-gray-600 mb-1">Nome do pet *</label>
                       <input 
                         type="text" 
-                        value={pet.nome}
-                        onChange={(e) => handlePetChange(idx, 'nome', e.target.value)}
+                        value={pet.name}
+                        onChange={(e) => handlePetChange(idx, 'name', e.target.value)}
                         placeholder="Ex: Luna"
                         required
                         className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs bg-white focus:outline-none focus:border-[#0E5C47]"
@@ -219,8 +233,8 @@ export default function RegisterPage({ onNavigate }: RegisterPageProps) {
                       <label className="block text-[0.7rem] font-semibold text-gray-600 mb-1">Espécie *</label>
                       <input 
                         type="text"
-                        value={pet.especie}
-                        onChange={(e) => handlePetChange(idx, 'especie', e.target.value)}
+                        value={pet.species}
+                        onChange={(e) => handlePetChange(idx, 'species', e.target.value)}
                         placeholder="Ex: Canina, Felina..."
                         required
                         className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs bg-[#FFFFFF] focus:outline-none focus:border-[#0E5C47]"
@@ -233,8 +247,8 @@ export default function RegisterPage({ onNavigate }: RegisterPageProps) {
                       <label className="block text-[0.7rem] font-semibold text-gray-600 mb-1">Raça</label>
                       <input
                         type="text"
-                        value={pet.raca}
-                        onChange={(e) => handlePetChange(idx, 'raca', e.target.value)}
+                        value={pet.breed}
+                        onChange={(e) => handlePetChange(idx, 'breed', e.target.value)}
                         placeholder="Ex: Poodle, Vira-lata..."
                         className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs bg-white focus:outline-none focus:border-[#0E5C47]"
                       />
@@ -242,8 +256,8 @@ export default function RegisterPage({ onNavigate }: RegisterPageProps) {
                     <div>
                       <label className="block text-[0.7rem] font-semibold text-gray-600 mb-1">Sexo *</label>
                       <select 
-                        value={pet.sexo}
-                        onChange={(e) => handlePetChange(idx, 'sexo', e.target.value)}
+                        value={pet.sex}
+                        onChange={(e) => handlePetChange(idx, 'sex', e.target.value)}
                         className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs bg-white focus:outline-none focus:border-[#0E5C47]"
                       >
                         <option value="Fêmea">Fêmea</option>

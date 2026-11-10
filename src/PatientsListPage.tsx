@@ -4,19 +4,19 @@ import './index.css';
 
 interface Pet {
   id?: string;
-  nome: string;
-  especie: string;
-  raca: string;
-  sexo: string;
+  name: string;
+  species: string;
+  breed?: string;
+  sex?: string;
 }
 
-interface Tutor {
+interface Guardian {
   id: string;
-  nome: string;
+  name: string;
   cpf: string;
-  telefone: string;
-  email: string;
-  pets: Pet[];
+  phone: string;
+  email?: string;
+  pets?: Pet[];
 }
 
 interface PatientsListPageProps {
@@ -24,150 +24,190 @@ interface PatientsListPageProps {
 }
 
 export default function PatientsListPage({ onNavigate }: PatientsListPageProps) {
-  const [tutores, setTutores] = useState<Tutor[]>([]);
+  const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [tutorToDelete, setTutorToDelete] = useState<Tutor | null>(null);
-  const [editingTutor, setEditingTutor] = useState<Tutor | null>(null);
+  const [guardianToDelete, setGuardianToDelete] = useState<Guardian | null>(null);
+  const [editingGuardian, setEditingGuardian] = useState<Guardian | null>(null);
 
   useEffect(() => {
-    fetchTutores();
+    fetchData();
   }, []);
 
-  const fetchTutores = async () => {
+  const fetchData = async () => {
     setIsLoading(true);
     try {
       const baseUrl = import.meta.env.VITE_API_URL || 'https://vetcare-zcak.onrender.com';
       const token = localStorage.getItem('token');
 
-      let response = await fetch(`${baseUrl}/users`, {
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      if (!response.ok) {
-        response = await fetch(`${baseUrl}/api/users`, {
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        });
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
       }
 
-      if (response.status === 401 || response.status === 403) {
+      // 1. Busca os tutores (Guardians)
+      const resGuardians = await fetch(`${baseUrl}/guardians`, { headers });
+
+      if (resGuardians.status === 401 || resGuardians.status === 403) {
         localStorage.removeItem('token');
         onNavigate('login');
         return;
       }
 
-      if (response.ok) {
-        const data = await response.json();
-        const rawList = Array.isArray(data) ? data : data.users || [];
+      if (resGuardians.ok) {
+        const guardiansData = await resGuardians.json();
+        const rawGuardians = Array.isArray(guardiansData) 
+          ? guardiansData 
+          : guardiansData.guardians || guardiansData.data || [];
 
-        const formattedTutores: Tutor[] = rawList.map((item: any, idx: number) => ({
-          id: item.id || String(idx + 1),
-          nome: item.nome || item.name || 'Sem Nome',
-          cpf: item.cpf || 'Não informado',
-          telefone: item.telefone || item.phone || 'Não informado',
-          email: item.email || 'Não informado',
-          pets: Array.isArray(item.pets) && item.pets.length > 0
-            ? item.pets.map((p: any) => ({
-                id: p.id,
-                nome: p.nome || p.name || 'Pet',
-                especie: p.especie || 'Canina',
-                raca: p.raca || 'Sem raça definida',
-                sexo: p.sexo || 'Fêmea',
-              }))
-            : [
-                {
-                  id: `pet-${item.id || idx}`,
-                  nome: item.petNome || 'Pet Cadastrado',
-                  especie: item.especie || 'Canina',
-                  raca: item.raca || 'Sem raça definida',
-                  sexo: item.sexo || 'Fêmea',
-                },
-              ],
-        }));
+        // 2. Tenta buscar todos os pets cadastrados na rota /pets do NestJS
+        let allPets: any[] = [];
+        try {
+          const resPets = await fetch(`${baseUrl}/pets`, { headers });
+          if (resPets.ok) {
+            const petsData = await resPets.json();
+            allPets = Array.isArray(petsData) ? petsData : petsData.pets || petsData.data || [];
+          }
+        } catch (e) {
+          console.log('Não foi possível buscar a rota /pets separadamente.');
+        }
 
-        setTutores(formattedTutores);
+        // 3. Associa os pets aos tutores correspondentes
+        const formattedList: Guardian[] = rawGuardians.map((item: any, idx: number) => {
+          const guardianId = String(item.id || idx + 1);
+
+          // Procura pets que venham embutidos ou que tenham o guardianId/tutorId correspondente
+          const embeddedPets = item.pets || item.pet ? (Array.isArray(item.pets) ? item.pets : [item.pet]) : [];
+          const matchedPets = allPets.filter((p: any) => 
+            String(p.guardianId || p.tutorId || p.guardian?.id) === guardianId
+          );
+
+          const combinedRawPets = embeddedPets.length > 0 ? embeddedPets : matchedPets;
+
+          const petsFormatted: Pet[] = combinedRawPets.map((p: any, pIdx: number) => ({
+            id: p.id || `pet-${pIdx}`,
+            name: p.name || p.nome || 'Pet sem nome',
+            species: p.species || p.especie || 'Canina',
+            breed: p.breed || p.raca || 'Sem raça definida',
+            sex: (() => {
+              const rawSex = p.sex || p.gender || p.sexo || 'Fêmea';
+              if (String(rawSex).toUpperCase() === 'MALE' || String(rawSex).toUpperCase() === 'MACHO') return 'Macho';
+              return 'Fêmea';
+            })(),
+          }));
+
+          return {
+            id: guardianId,
+            name: item.name || item.nome || 'Sem Nome',
+            cpf: item.cpf || 'Não informado',
+            phone: item.phone || item.telefone || 'Não informado',
+            email: item.email || 'Não informado',
+            pets: petsFormatted,
+          };
+        });
+
+        setGuardians(formattedList);
       }
     } catch (error) {
-      console.error('Erro ao listar tutores:', error);
+      console.error('Erro ao buscar dados:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleDeleteConfirm = async () => {
-    if (!tutorToDelete) return;
+    if (!guardianToDelete) return;
 
     try {
       const baseUrl = import.meta.env.VITE_API_URL || 'https://vetcare-zcak.onrender.com';
       const token = localStorage.getItem('token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      await fetch(`${baseUrl}/users/${tutorToDelete.id}`, {
+      await fetch(`${baseUrl}/guardians/${guardianToDelete.id}`, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers,
       });
     } catch (error) {
-      console.error('Erro ao deletar no servidor:', error);
+      console.error('Erro ao deletar:', error);
     } finally {
-      setTutores((prev) => prev.filter((t) => t.id !== tutorToDelete.id));
+      setGuardians((prev) => prev.filter((g) => g.id !== guardianToDelete.id));
       alert('Registro removido com sucesso!');
-      setTutorToDelete(null);
+      setGuardianToDelete(null);
     }
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingTutor) return;
+    if (!editingGuardian) return;
 
-    setTutores((prev) => prev.map((t) => (t.id === editingTutor.id ? editingTutor : t)));
-    alert('Dados do tutor e pets atualizados com sucesso!');
-    setEditingTutor(null);
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || 'https://vetcare-zcak.onrender.com';
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      await fetch(`${baseUrl}/guardians/${editingGuardian.id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          name: editingGuardian.name,
+          cpf: editingGuardian.cpf,
+          phone: editingGuardian.phone,
+          email: editingGuardian.email,
+        }),
+      });
+
+      setGuardians((prev) =>
+        prev.map((g) => (g.id === editingGuardian.id ? editingGuardian : g))
+      );
+      alert('Dados atualizados com sucesso!');
+    } catch (error) {
+      console.error('Erro ao editar:', error);
+    } finally {
+      setEditingGuardian(null);
+    }
   };
 
-  const handleAddPetToEditingTutor = () => {
-    if (!editingTutor) return;
-    setEditingTutor({
-      ...editingTutor,
-      pets: [...editingTutor.pets, { nome: '', especie: 'Canina', raca: '', sexo: 'Fêmea' }],
+  const handleAddPetToEditingGuardian = () => {
+    if (!editingGuardian) return;
+    setEditingGuardian({
+      ...editingGuardian,
+      pets: [
+        ...(editingGuardian.pets || []),
+        { name: '', species: 'Canina', breed: '', sex: 'Fêmea' },
+      ],
     });
   };
 
   const handlePetChange = (index: number, field: keyof Pet, value: string) => {
-    if (!editingTutor) return;
-    const updatedPets = [...editingTutor.pets];
+    if (!editingGuardian || !editingGuardian.pets) return;
+    const updatedPets = [...editingGuardian.pets];
     updatedPets[index] = { ...updatedPets[index], [field]: value };
-    setEditingTutor({ ...editingTutor, pets: updatedPets });
+    setEditingGuardian({ ...editingGuardian, pets: updatedPets });
   };
 
-  const handleRemovePetFromEditingTutor = (index: number) => {
-    if (!editingTutor) return;
-    setEditingTutor({
-      ...editingTutor,
-      pets: editingTutor.pets.filter((_, i) => i !== index),
+  const handleRemovePetFromEditingGuardian = (index: number) => {
+    if (!editingGuardian || !editingGuardian.pets) return;
+    setEditingGuardian({
+      ...editingGuardian,
+      pets: editingGuardian.pets.filter((_, i) => i !== index),
     });
   };
 
-  const filteredTutores = tutores.filter(
-    (tutor) =>
-      tutor.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tutor.cpf.includes(searchTerm) ||
-      tutor.pets.some((pet) => pet.nome.toLowerCase().includes(searchTerm.toLowerCase()))
+  const filteredGuardians = guardians.filter(
+    (g) =>
+      g.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      g.cpf.includes(searchTerm) ||
+      (g.pets && g.pets.some((p) => p.name.toLowerCase().includes(searchTerm.toLowerCase())))
   );
 
   return (
     <div className="flex h-screen bg-[#F4F6F5] font-sans text-gray-700 overflow-hidden">
-      {/* SIDEBAR UNIFICADA */}
       <Sidebar activePage="lista" onNavigate={onNavigate} />
 
-      {/* ÁREA PRINCIPAL */}
       <div className="flex-1 flex flex-col overflow-y-auto">
         <header className="h-16 bg-white border-b border-gray-200 px-8 flex items-center justify-between shrink-0">
           <div className="relative w-96">
@@ -224,11 +264,10 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
             </button>
           </div>
 
-          {/* TABELA DE REGISTROS */}
           <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
             {isLoading ? (
               <div className="p-12 text-center text-xs text-gray-400">Carregando registros...</div>
-            ) : filteredTutores.length === 0 ? (
+            ) : filteredGuardians.length === 0 ? (
               <div className="p-12 text-center text-xs text-gray-400">Nenhum registro encontrado.</div>
             ) : (
               <div className="overflow-x-auto">
@@ -243,25 +282,25 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 text-xs text-gray-700">
-                    {filteredTutores.map((tutor) => (
-                      <tr key={tutor.id} className="hover:bg-gray-50/60 transition-colors">
+                    {filteredGuardians.map((guardian) => (
+                      <tr key={guardian.id} className="hover:bg-gray-50/60 transition-colors">
                         <td className="py-4 px-6 font-bold text-gray-800">
-                          {tutor.nome}
-                          <div className="text-[0.68rem] text-gray-400 font-normal">CPF: {tutor.cpf}</div>
+                          {guardian.name}
+                          <div className="text-[0.68rem] text-gray-400 font-normal">CPF: {guardian.cpf}</div>
                         </td>
                         <td className="py-4 px-6">
-                          <div>{tutor.telefone}</div>
-                          <div className="text-[0.68rem] text-gray-400">{tutor.email || 'Não informado'}</div>
+                          <div>{guardian.phone}</div>
+                          <div className="text-[0.68rem] text-gray-400">{guardian.email || 'Não informado'}</div>
                         </td>
                         <td className="py-4 px-6">
                           <div className="flex flex-wrap gap-1">
-                            {tutor.pets && tutor.pets.length > 0 ? (
-                              tutor.pets.map((p, idx) => (
+                            {guardian.pets && guardian.pets.length > 0 ? (
+                              guardian.pets.map((p, idx) => (
                                 <span
                                   key={idx}
                                   className="bg-[#E8F5F1] text-[#0E5C47] font-semibold px-2.5 py-1 rounded-lg text-xs"
                                 >
-                                  {p.nome} ({p.sexo})
+                                  {p.name} ({p.sex})
                                 </span>
                               ))
                             ) : (
@@ -270,12 +309,12 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
                           </div>
                         </td>
                         <td className="py-4 px-6">
-                          {tutor.pets && tutor.pets.length > 0 ? (
+                          {guardian.pets && guardian.pets.length > 0 ? (
                             <div className="space-y-1">
-                              {tutor.pets.map((p, idx) => (
+                              {guardian.pets.map((p, idx) => (
                                 <div key={idx} className="text-xs">
-                                  <span className="font-semibold text-gray-800">{p.especie}</span>
-                                  {p.raca && <span className="text-gray-400"> · {p.raca}</span>}
+                                  <span className="font-semibold text-gray-800">{p.species}</span>
+                                  {p.breed && <span className="text-gray-400"> · {p.breed}</span>}
                                 </div>
                               ))}
                             </div>
@@ -286,40 +325,22 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
                         <td className="py-4 px-6 text-right space-x-1">
                           <button
                             type="button"
-                            onClick={() => setEditingTutor(tutor)}
+                            onClick={() => setEditingGuardian(guardian)}
                             className="p-2 text-gray-400 hover:text-[#0E5C47] hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                            title="Editar tutor e pets"
+                            title="Editar tutor"
                           >
-                            <svg
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
                             </svg>
                           </button>
 
                           <button
                             type="button"
-                            onClick={() => setTutorToDelete(tutor)}
+                            onClick={() => setGuardianToDelete(guardian)}
                             className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                             title="Deletar registro"
                           >
-                            <svg
-                              width="16"
-                              height="16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                               <polyline points="3 6 5 6 21 6" />
                               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                             </svg>
@@ -335,8 +356,8 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
         </main>
       </div>
 
-      {/* MODAL DE EDIÇÃO DO TUTOR E SEUS PETS */}
-      {editingTutor && (
+      {/* MODAL DE EDIÇÃO */}
+      {editingGuardian && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <form
             onSubmit={handleSaveEdit}
@@ -344,11 +365,11 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
           >
             <div className="flex justify-between items-center border-b border-gray-100 pb-3">
               <h3 className="text-base font-bold text-gray-800">
-                Editar Cadastro de {editingTutor.nome}
+                Editar Cadastro de {editingGuardian.name}
               </h3>
               <button
                 type="button"
-                onClick={() => setEditingTutor(null)}
+                onClick={() => setEditingGuardian(null)}
                 className="text-gray-400 hover:text-gray-600 cursor-pointer"
               >
                 ✕
@@ -364,8 +385,8 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
                   <label className="block text-[0.7rem] font-semibold text-gray-600 mb-1">Nome</label>
                   <input
                     type="text"
-                    value={editingTutor.nome}
-                    onChange={(e) => setEditingTutor({ ...editingTutor, nome: e.target.value })}
+                    value={editingGuardian.name}
+                    onChange={(e) => setEditingGuardian({ ...editingGuardian, name: e.target.value })}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#0E5C47]"
                     required
                   />
@@ -374,20 +395,18 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
                   <label className="block text-[0.7rem] font-semibold text-gray-600 mb-1">CPF</label>
                   <input
                     type="text"
-                    value={editingTutor.cpf}
-                    onChange={(e) => setEditingTutor({ ...editingTutor, cpf: e.target.value })}
+                    value={editingGuardian.cpf}
+                    onChange={(e) => setEditingGuardian({ ...editingGuardian, cpf: e.target.value })}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#0E5C47]"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-[0.7rem] font-semibold text-gray-600 mb-1">
-                    Telefone
-                  </label>
+                  <label className="block text-[0.7rem] font-semibold text-gray-600 mb-1">Telefone</label>
                   <input
                     type="text"
-                    value={editingTutor.telefone}
-                    onChange={(e) => setEditingTutor({ ...editingTutor, telefone: e.target.value })}
+                    value={editingGuardian.phone}
+                    onChange={(e) => setEditingGuardian({ ...editingGuardian, phone: e.target.value })}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#0E5C47]"
                     required
                   />
@@ -396,8 +415,8 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
                   <label className="block text-[0.7rem] font-semibold text-gray-600 mb-1">E-mail</label>
                   <input
                     type="email"
-                    value={editingTutor.email}
-                    onChange={(e) => setEditingTutor({ ...editingTutor, email: e.target.value })}
+                    value={editingGuardian.email || ''}
+                    onChange={(e) => setEditingGuardian({ ...editingGuardian, email: e.target.value })}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#0E5C47]"
                   />
                 </div>
@@ -407,28 +426,28 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
             <div className="space-y-3 pt-2">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold text-[#0E5C47] uppercase tracking-wider">
-                  Pets Vinculados ({editingTutor.pets.length})
+                  Pets Vinculados ({editingGuardian.pets?.length || 0})
                 </h4>
                 <button
                   type="button"
-                  onClick={handleAddPetToEditingTutor}
+                  onClick={handleAddPetToEditingGuardian}
                   className="text-xs font-bold text-[#0E5C47] hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   + Adicionar outro pet
                 </button>
               </div>
 
-              {editingTutor.pets.map((pet, idx) => (
+              {editingGuardian.pets && editingGuardian.pets.map((pet, idx) => (
                 <div
                   key={idx}
                   className="bg-gray-50 p-3 rounded-2xl border border-gray-200 relative space-y-2"
                 >
                   <div className="flex justify-between items-center">
                     <span className="text-[0.7rem] font-bold text-gray-500">Pet {idx + 1}</span>
-                    {editingTutor.pets.length > 1 && (
+                    {editingGuardian.pets && editingGuardian.pets.length > 1 && (
                       <button
                         type="button"
-                        onClick={() => handleRemovePetFromEditingTutor(idx)}
+                        onClick={() => handleRemovePetFromEditingGuardian(idx)}
                         className="text-red-500 hover:text-red-700 text-xs font-bold cursor-pointer"
                       >
                         Remover
@@ -440,8 +459,8 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
                       <label className="block text-[0.65rem] text-gray-500 mb-1">Nome do Pet</label>
                       <input
                         type="text"
-                        value={pet.nome}
-                        onChange={(e) => handlePetChange(idx, 'nome', e.target.value)}
+                        value={pet.name}
+                        onChange={(e) => handlePetChange(idx, 'name', e.target.value)}
                         className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#0E5C47]"
                         required
                       />
@@ -450,8 +469,8 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
                       <label className="block text-[0.65rem] text-gray-500 mb-1">Espécie</label>
                       <input
                         type="text"
-                        value={pet.especie}
-                        onChange={(e) => handlePetChange(idx, 'especie', e.target.value)}
+                        value={pet.species}
+                        onChange={(e) => handlePetChange(idx, 'species', e.target.value)}
                         className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#0E5C47]"
                         required
                       />
@@ -460,16 +479,16 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
                       <label className="block text-[0.65rem] text-gray-500 mb-1">Raça</label>
                       <input
                         type="text"
-                        value={pet.raca}
-                        onChange={(e) => handlePetChange(idx, 'raca', e.target.value)}
+                        value={pet.breed || ''}
+                        onChange={(e) => handlePetChange(idx, 'breed', e.target.value)}
                         className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#0E5C47]"
                       />
                     </div>
                     <div>
                       <label className="block text-[0.65rem] text-gray-500 mb-1">Sexo</label>
                       <select
-                        value={pet.sexo}
-                        onChange={(e) => handlePetChange(idx, 'sexo', e.target.value)}
+                        value={pet.sex || 'Fêmea'}
+                        onChange={(e) => handlePetChange(idx, 'sex', e.target.value)}
                         className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:border-[#0E5C47]"
                       >
                         <option value="Fêmea">Fêmea</option>
@@ -484,7 +503,7 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
             <div className="flex gap-3 pt-3 border-t border-gray-100">
               <button
                 type="button"
-                onClick={() => setEditingTutor(null)}
+                onClick={() => setEditingGuardian(null)}
                 className="flex-1 py-2.5 border border-gray-200 rounded-xl text-xs font-bold text-gray-700 hover:bg-gray-50 cursor-pointer"
               >
                 Cancelar
@@ -500,17 +519,17 @@ export default function PatientsListPage({ onNavigate }: PatientsListPageProps) 
         </div>
       )}
 
-      {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO */}
-      {tutorToDelete && (
+      {/* MODAL EXCLUSÃO */}
+      {guardianToDelete && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 text-center space-y-4">
             <h3 className="text-base font-bold text-gray-800">Excluir registro?</h3>
             <p className="text-xs text-gray-500">
-              Deseja apagar o tutor {tutorToDelete.nome} e seus pets?
+              Deseja apagar o tutor {guardianToDelete.name} e seus pets?
             </p>
             <div className="flex gap-3">
               <button
-                onClick={() => setTutorToDelete(null)}
+                onClick={() => setGuardianToDelete(null)}
                 className="flex-1 py-2 border rounded-xl text-xs cursor-pointer"
               >
                 Cancelar

@@ -3,6 +3,7 @@ import LoginPage from './LoginPage';
 import PatientsListPage from './PatientsListPage';
 import RegisterPage from './RegisterPage';
 import UserRegisterPage from './UserRegisterPage';
+import UnderConstruction from './UnderConstruction';
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<string>('login');
@@ -25,23 +26,20 @@ export default function App() {
     setCurrentPage(page);
   };
 
-  return (
-    <main className="w-full h-screen overflow-hidden">
-      {currentPage === 'login' && (
-        <LoginPage onNavigateToList={() => setCurrentPage('lista')} />
-      )}
+  // Páginas funcionais do sistema
+  if (currentPage === 'login') {
+    return <LoginPage onNavigateToList={() => setCurrentPage('lista')} />;
+  }
+  if (currentPage === 'lista') {
+    return <PatientsListPage onNavigate={handleNavigate} />;
+  }
+  if (currentPage === 'cadastro') {
+    return <RegisterPage onNavigate={handleNavigate} />;
+  }
+  if (currentPage === 'cadastrarUsuario') {
+    return <UserRegisterPage onNavigate={handleNavigate} />;
+  }
 
-      {currentPage === 'lista' && (
-        <PatientsListPage onNavigate={handleNavigate} />
-      )}
-
-      {currentPage === 'cadastro' && (
-        <RegisterPage onNavigate={handleNavigate} />
-      )}
-
-      {currentPage === 'cadastrarUsuario' && (
-        <UserRegisterPage onNavigate={handleNavigate} />
-      )}
-    </main>
-  );
+  // Para qualquer outra página do menu que ainda esteja em desenvolvimento
+  return <UnderConstruction pageName={currentPage} onNavigate={handleNavigate} />;
 }
